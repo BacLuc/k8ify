@@ -19,6 +19,29 @@ var (
 	reTrue = regexp.MustCompile("(?i)^true|yes|1$")
 )
 
+func filterBlank(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	trimmed := strings.Trim(*s, " \t")
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func FilterBlankBool(s *string) *bool {
+	if s == nil {
+		return nil
+	}
+	trimmed := strings.Trim(*s, " \t")
+	if trimmed == "" {
+		return nil
+	}
+	isTruthy := IsTruthy(trimmed)
+	return &isTruthy
+}
+
 // SubConfig extracts the keys that start with a given prefix from a given
 // config map
 //
@@ -120,22 +143,12 @@ func ImagePullSecret(labels map[string]string) *string {
 
 // ServiceMonitorConfigPointer Parses the config values for serviceMonitor
 func ServiceMonitorConfigPointer(labels map[string]string) *ServiceMonitorConfig {
-	processValue := func(s *string) *string {
-		if s == nil {
-			return nil
-		}
-		trimmed := strings.Trim(*s, " \t")
-		if trimmed == "" {
-			return nil
-		}
-		return &trimmed
-	}
 	return &ServiceMonitorConfig{
 		Enabled:      GetBoolean(labels, "k8ify.prometheus.serviceMonitor"),
-		Interval:     processValue(GetOptional(labels, "k8ify.prometheus.serviceMonitor.interval")),
-		Path:         processValue(GetOptional(labels, "k8ify.prometheus.serviceMonitor.path")),
-		Scheme:       processValue(GetOptional(labels, "k8ify.prometheus.serviceMonitor.scheme")),
-		EndpointName: processValue(GetOptional(labels, "k8ify.prometheus.serviceMonitor.endpoint.name")),
+		Interval:     filterBlank(GetOptional(labels, "k8ify.prometheus.serviceMonitor.interval")),
+		Path:         filterBlank(GetOptional(labels, "k8ify.prometheus.serviceMonitor.path")),
+		Scheme:       filterBlank(GetOptional(labels, "k8ify.prometheus.serviceMonitor.scheme")),
+		EndpointName: filterBlank(GetOptional(labels, "k8ify.prometheus.serviceMonitor.endpoint.name")),
 	}
 }
 
@@ -144,6 +157,19 @@ func ServiceMonitorBasicAuthConfigPointer(labels map[string]string) *ServiceMoni
 		Enabled:  GetBoolean(labels, "k8ify.prometheus.serviceMonitor.endpoint.basicAuth"),
 		Username: GetOrDefault(labels, "k8ify.prometheus.serviceMonitor.endpoint.basicAuth.username", ""),
 		Password: GetOrDefault(labels, "k8ify.prometheus.serviceMonitor.endpoint.basicAuth.password", ""),
+	}
+}
+
+func ServiceMonitorTlsConfigPointer(labels map[string]string) *ServiceMonitorTlsConfig {
+	return &ServiceMonitorTlsConfig{
+		Enabled:            GetBoolean(labels, "k8ify.prometheus.serviceMonitor.endpoint.tlsConfig"),
+		Ca:                 filterBlank(GetOptional(labels, "k8ify.prometheus.serviceMonitor.endpoint.tlsConfig.ca")),
+		Cert:               filterBlank(GetOptional(labels, "k8ify.prometheus.serviceMonitor.endpoint.tlsConfig.cert")),
+		KeySecretValue:     filterBlank(GetOptional(labels, "k8ify.prometheus.serviceMonitor.endpoint.tlsConfig.keySecretValue")),
+		InsecureSkipVerify: FilterBlankBool(GetOptional(labels, "k8ify.prometheus.serviceMonitor.endpoint.tlsConfig.insecureSkipVerify")),
+		MaxVersion:         filterBlank(GetOptional(labels, "k8ify.prometheus.serviceMonitor.endpoint.tlsConfig.maxVersion")),
+		MinVersion:         filterBlank(GetOptional(labels, "k8ify.prometheus.serviceMonitor.endpoint.tlsConfig.minVersion")),
+		ServerName:         filterBlank(GetOptional(labels, "k8ify.prometheus.serviceMonitor.endpoint.tlsConfig.serverName")),
 	}
 }
 
@@ -159,6 +185,17 @@ type ServiceMonitorBasicAuthConfig struct {
 	Enabled  bool
 	Username string
 	Password string
+}
+
+type ServiceMonitorTlsConfig struct {
+	Enabled            bool
+	Ca                 *string
+	Cert               *string
+	KeySecretValue     *string
+	InsecureSkipVerify *bool
+	MaxVersion         *string
+	MinVersion         *string
+	ServerName         *string
 }
 
 // StorageSize determines the requested storage size for a volume, or a
