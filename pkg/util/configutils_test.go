@@ -205,10 +205,10 @@ type TestCase[InParam any, OutParam any] struct {
 }
 
 var (
+	monitorEndpointName = "default"
 	monitorInterval     = "30s"
+	monitorPassword     = "mypassword"
 	monitorPath         = "/actuator/health"
 	monitorScheme       = "http"
-	monitorEndpointName = "default"
 	monitorUsername     = "myuser"
-	monitorPassword     = "mypassword"
 )
