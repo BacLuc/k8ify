@@ -2,7 +2,9 @@ package internal
 
 import (
 	"os"
+	"strings"
 
+	"github.com/vshn/k8ify/pkg/provider/targetconfigs"
 	"github.com/vshn/k8ify/pkg/util"
 
 	"github.com/sirupsen/logrus"
@@ -137,5 +139,96 @@ func DomainLengthPrecheck(inputs *ir.Inputs) {
 				os.Exit(1)
 			}
 		}
+	}
+}
+
+// containerOnlyTargetCfgKeys are securityContext sub-keys that are only valid
+// at the container level (k8ify.securityContext.*) and must NOT appear in the
+// pod-level x-targetCfg.securityContext cluster-wide default.
+var containerOnlyTargetCfgKeys = map[string]bool{
+	"capabilities":             true,
+	"privileged":               true,
+	"allowPrivilegeEscalation": true,
+	"readOnlyRootFilesystem":   true,
+}
+
+func hasPodSecurityContextLabels(labels map[string]string) bool {
+	for key := range labels {
+		if key == "k8ify.podSecurityContext" || strings.HasPrefix(key, "k8ify.podSecurityContext.") {
+			return true
+		}
+	}
+	return false
+}
+
+// validatePodSecurityContextLabels validates the k8ify.podSecurityContext.*
+// labels. When isPart is true, any pod-security-context label is rejected
+// (they are parent-only, like ServiceAccountName). Otherwise the labels are
+// parsed and their errors returned.
+func validatePodSecurityContextLabels(name string, labels map[string]string, isPart bool) []error {
+	if hasPodSecurityContextLabels(labels) {
+		if isPart {
+			return []error{&PartPodSecurityContextError{Part: name}}
+		}
+		_, errs := ir.PodSecurityContextSpecFromLabels(labels)
+		return errs
+	}
+	return nil
+}
+
+// validateContainerSecurityContextLabels validates the k8ify.securityContext.*
+// labels and returns any parsing errors.
+func validateContainerSecurityContextLabels(labels map[string]string) []error {
+	_, errs := ir.ContainerSecurityContextSpecFromLabels(labels)
+	return errs
+}
+
+// validateTargetCfgSecurityContext validates the pod-level subset configured
+// under x-targetCfg.securityContext and rejects any container-level-only keys.
+func validateTargetCfgSecurityContext(t ir.TargetCfg) []error {
+	var errs []error
+	_, defaultErrs := t.PodSecurityContextDefault()
+	errs = append(errs, defaultErrs...)
+
+	raw, ok := t[targetconfigs.SecurityContextKey]
+	if !ok {
+		return errs
+	}
+	rawMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return errs
+	}
+	for key := range rawMap {
+		if containerOnlyTargetCfgKeys[key] {
+			errs = append(errs, &TargetCfgContainerLevelKeyError{Key: key})
+		}
+	}
+	return errs
+}
+
+// SecurityContextPrecheck validates all securityContext configuration across
+// the inputs and exits with a clear error report when any validation fails.
+func SecurityContextPrecheck(inputs *ir.Inputs) {
+	var errors []error
+
+	errors = append(errors, validateTargetCfgSecurityContext(inputs.TargetCfg)...)
+
+	for _, service := range inputs.Services {
+		errors = append(errors, validatePodSecurityContextLabels(service.Name, service.Labels(), false)...)
+		errors = append(errors, validateContainerSecurityContextLabels(service.Labels())...)
+		for _, part := range service.GetParts() {
+			errors = append(errors, validatePodSecurityContextLabels(part.Name, part.Labels(), true)...)
+			errors = append(errors, validateContainerSecurityContextLabels(part.Labels())...)
+		}
+	}
+
+	if len(errors) > 0 {
+		logrus.Error(HLINE)
+		logrus.Error("  securityContext configuration is invalid:")
+		for _, err := range errors {
+			logrus.Errorf("  - %s", err.Error())
+		}
+		logrus.Error(HLINE)
+		os.Exit(1)
 	}
 }

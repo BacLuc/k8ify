@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    k8ify.ref-slug: oasp
+    k8ify.service: main
+  name: main-oasp
+spec:
+  selector:
+    matchLabels:
+      k8ify.ref-slug: oasp
+      k8ify.service: main
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        k8ify.ref-slug: oasp
+        k8ify.service: main
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: k8ify.service
+                operator: In
+                values:
+                - main
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - image: nginx
+        imagePullPolicy: Always
+        name: main-oasp
+        resources: {}
+        securityContext:
+          runAsUser: 1000
+      - image: nginx
+        imagePullPolicy: Always
+        name: side-oasp
+        resources: {}
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsUser: 2000
+      enableServiceLinks: false
+      restartPolicy: Always
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+status: {}

@@ -10,7 +10,9 @@ import (
 
 	composeTypes "github.com/compose-spec/compose-go/v2/types"
 	prometheusTypes "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/vshn/k8ify/pkg/provider/targetconfigs"
 	"github.com/vshn/k8ify/pkg/util"
+	core "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -365,5 +367,194 @@ func ServiceMonitorTlsConfigPointer(labels map[string]string) (*ServiceMonitorTl
 		MaxVersion:         maxTlsVersion,
 		MinVersion:         minTlsVersion,
 		ServerName:         util.FilterBlank(util.GetOptional(labels, "k8ify.prometheus.serviceMonitor.endpoint.tlsConfig.serverName")),
+	}, nil
+}
+
+// PodSecurityContextSpec is an intermediate representation of the pod-level
+// security-context fields k8ify supports. Only fields with a non-nil value
+// (or non-empty slice) are meant to be emitted.
+type PodSecurityContextSpec struct {
+	FSGroup             *int64
+	FSGroupChangePolicy *core.PodFSGroupChangePolicy
+	SELinuxOptions      *core.SELinuxOptions
+	SupplementalGroups  []int64
+	SeccompProfile      *core.SeccompProfile
+	RunAsUser           *int64
+	RunAsGroup          *int64
+	RunAsNonRoot        *bool
+}
+
+// podSecurityContextSpecFromConfig builds a PodSecurityContextSpec from a flat
+// config map (as produced by util.SubConfig or util.NormalizeInterfaceConfig).
+// It collects and returns all parsing errors without short-circuiting.
+func podSecurityContextSpecFromConfig(cfg map[string]string) (*PodSecurityContextSpec, []error) {
+	var errs []error
+
+	fsGroup, err := util.ParseInt64(cfg, "fsGroup")
+	if err != nil {
+		errs = append(errs, err)
+	}
+	fsGroupChangePolicy, err := util.ParseFSGroupChangePolicy(cfg, "fsGroupChangePolicy")
+	if err != nil {
+		errs = append(errs, err)
+	}
+	seLinuxCfg := util.SubConfig(cfg, "seLinuxOptions", "")
+	seLinuxOptions := util.ParseSELinuxOptions(seLinuxCfg)
+
+	supplementalGroups, err := util.ParseInt64List(cfg, "supplementalGroups")
+	if err != nil {
+		errs = append(errs, err)
+	}
+	seccompCfg := util.SubConfig(cfg, "seccompProfile", "")
+	seccompProfile, err := util.ParseSeccompProfile(seccompCfg)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	runAsUser, err := util.ParseInt64(cfg, "runAsUser")
+	if err != nil {
+		errs = append(errs, err)
+	}
+	runAsGroup, err := util.ParseInt64(cfg, "runAsGroup")
+	if err != nil {
+		errs = append(errs, err)
+	}
+	runAsNonRoot := util.ParseBoolPtr(cfg, "runAsNonRoot")
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	if fsGroup == nil && fsGroupChangePolicy == nil && seLinuxOptions == nil &&
+		len(supplementalGroups) == 0 && seccompProfile == nil &&
+		runAsUser == nil && runAsGroup == nil && runAsNonRoot == nil {
+		return nil, nil
+	}
+
+	return &PodSecurityContextSpec{
+		FSGroup:             fsGroup,
+		FSGroupChangePolicy: fsGroupChangePolicy,
+		SELinuxOptions:      seLinuxOptions,
+		SupplementalGroups:  supplementalGroups,
+		SeccompProfile:      seccompProfile,
+		RunAsUser:           runAsUser,
+		RunAsGroup:          runAsGroup,
+		RunAsNonRoot:        runAsNonRoot,
+	}, nil
+}
+
+// PodSecurityContextDefault returns the pod-level security-context default
+// configured under the `securityContext` key of this TargetCfg (the pod-level
+// subset only). Absent or empty → (nil, nil).
+func (t TargetCfg) PodSecurityContextDefault() (*PodSecurityContextSpec, []error) {
+	raw, ok := t[targetconfigs.SecurityContextKey]
+	if !ok {
+		return nil, nil
+	}
+	rawMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, []error{fmt.Errorf("x-targetCfg.securityContext must be a mapping, got %T", raw)}
+	}
+	cfg := util.NormalizeInterfaceConfig(rawMap, "")
+	return podSecurityContextSpecFromConfig(cfg)
+}
+
+// PodSecurityContextSpecFromLabels parses the `k8ify.podSecurityContext.*`
+// labels into a PodSecurityContextSpec. Empty/absent labels return (nil, nil).
+func PodSecurityContextSpecFromLabels(labels map[string]string) (*PodSecurityContextSpec, []error) {
+	cfg := util.SubConfig(labels, "k8ify.podSecurityContext", "")
+	if len(cfg) == 0 {
+		return nil, nil
+	}
+	return podSecurityContextSpecFromConfig(cfg)
+}
+
+// ContainerSecurityContextSpec is an intermediate representation of the
+// container-level security-context fields k8ify supports.
+type ContainerSecurityContextSpec struct {
+	RunAsUser                *int64
+	RunAsGroup               *int64
+	RunAsNonRoot             *bool
+	ReadOnlyRootFilesystem   *bool
+	AllowPrivilegeEscalation *bool
+	Privileged               *bool
+	Capabilities             *core.Capabilities
+	SeccompProfile           *core.SeccompProfile
+	SELinuxOptions           *core.SELinuxOptions
+}
+
+// ContainerSecurityContextSpecFromLabels parses the `k8ify.securityContext.*`
+// labels into a ContainerSecurityContextSpec. Empty/absent labels return
+// (nil, nil).
+func ContainerSecurityContextSpecFromLabels(labels map[string]string) (*ContainerSecurityContextSpec, []error) {
+	cfg := util.SubConfig(labels, "k8ify.securityContext", "")
+	if len(cfg) == 0 {
+		return nil, nil
+	}
+
+	var errs []error
+
+	runAsUser, err := util.ParseInt64(cfg, "runAsUser")
+	if err != nil {
+		errs = append(errs, err)
+	}
+	runAsGroup, err := util.ParseInt64(cfg, "runAsGroup")
+	if err != nil {
+		errs = append(errs, err)
+	}
+	runAsNonRoot := util.ParseBoolPtr(cfg, "runAsNonRoot")
+	readOnlyRootFilesystem := util.ParseBoolPtr(cfg, "readOnlyRootFilesystem")
+	allowPrivilegeEscalation := util.ParseBoolPtr(cfg, "allowPrivilegeEscalation")
+	privileged := util.ParseBoolPtr(cfg, "privileged")
+
+	capabilitiesAdd, err := util.ParseCapabilities(cfg, "capabilities.add")
+	if err != nil {
+		errs = append(errs, err)
+	}
+	capabilitiesDrop, err := util.ParseCapabilities(cfg, "capabilities.drop")
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	seccompCfg := util.SubConfig(cfg, "seccompProfile", "")
+	seccompProfile, err := util.ParseSeccompProfile(seccompCfg)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	seLinuxCfg := util.SubConfig(cfg, "seLinuxOptions", "")
+	seLinuxOptions := util.ParseSELinuxOptions(seLinuxCfg)
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	var capabilities *core.Capabilities
+	if len(capabilitiesAdd) > 0 || len(capabilitiesDrop) > 0 {
+		capabilities = &core.Capabilities{}
+		if len(capabilitiesAdd) > 0 {
+			capabilities.Add = capabilitiesAdd
+		}
+		if len(capabilitiesDrop) > 0 {
+			capabilities.Drop = capabilitiesDrop
+		}
+	}
+
+	if runAsUser == nil && runAsGroup == nil && runAsNonRoot == nil &&
+		readOnlyRootFilesystem == nil && allowPrivilegeEscalation == nil &&
+		privileged == nil && capabilities == nil && seccompProfile == nil &&
+		seLinuxOptions == nil {
+		return nil, nil
+	}
+
+	return &ContainerSecurityContextSpec{
+		RunAsUser:                runAsUser,
+		RunAsGroup:               runAsGroup,
+		RunAsNonRoot:             runAsNonRoot,
+		ReadOnlyRootFilesystem:   readOnlyRootFilesystem,
+		AllowPrivilegeEscalation: allowPrivilegeEscalation,
+		Privileged:               privileged,
+		Capabilities:             capabilities,
+		SeccompProfile:           seccompProfile,
+		SELinuxOptions:           seLinuxOptions,
 	}, nil
 }

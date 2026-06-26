@@ -72,6 +72,20 @@ labels:
 ```
 
 
+#### Security Context
+
+k8ify supports pod-level and container-level Kubernetes `securityContext` fields through the label convention (`k8ify.podSecurityContext.*`, `k8ify.securityContext.*`). See [`README.md`](../README.md#labels) for the full field list.
+
+* **Pod-level** (`k8ify.podSecurityContext.*`) maps to `spec.template.spec.securityContext` and is **parent-only**. A `k8ify.partOf` part may not set pod-level labels — it is a hard validation error, because the pod security context applies to the whole pod, not a single container. This mirrors the parent-only `k8ify.serviceAccountName` behavior.
+* **Container-level** (`k8ify.securityContext.*`) maps to `spec.template.spec.containers[].securityContext` and is allowed on both parents and parts; each container gets its own context.
+* **Merge precedence** is per field (not whole-object replace): explicit service label > `x-targetCfg.securityContext` default > nothing. k8ify ships no built-in hard-coded defaults that change existing output — omitting all keys produces byte-identical manifests.
+* **List formatting** — `supplementalGroups`, `capabilities.add` and `capabilities.drop` are comma-separated strings, parsed to a sorted, deduplicated slice (e.g. `SYS_PTRACE,net_bind_service` → `["NET_BIND_SERVICE","SYS_PTRACE"]`).
+* **`seLinuxOptions.level`** is passed through verbatim and may contain `:` and `,`; it is never split.
+* **`seccompProfile.type=Localhost`** requires `seccompProfile.localhostProfile`; any other pairing is a validation error.
+* **External converters** — services using `k8ify.converter` short-circuit before pod construction, so security-context labels are silently ignored for those CRs.
+* **Cluster-wide defaults** — `x-targetCfg.securityContext` accepts only the **pod-level** subset; container-level-only keys (`capabilities`, `privileged`, `allowPrivilegeEscalation`, `readOnlyRootFilesystem`) placed there are a hard validation error.
+
+
 ## Conversion Table
 
 The following variables will be used in the table below:

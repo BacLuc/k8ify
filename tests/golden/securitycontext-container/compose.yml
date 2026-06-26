@@ -1,0 +1,14 @@
+services:
+  app:
+    image: nginx
+    labels:
+      k8ify.securityContext.runAsUser: "1000"
+      k8ify.securityContext.runAsGroup: "2000"
+      k8ify.securityContext.runAsNonRoot: "true"
+      k8ify.securityContext.readOnlyRootFilesystem: "true"
+      k8ify.securityContext.allowPrivilegeEscalation: "false"
+      k8ify.securityContext.capabilities.add: "SYS_PTRACE,net_bind_service"
+      k8ify.securityContext.capabilities.drop: "ALL"
+      k8ify.securityContext.seccompProfile.type: "Localhost"
+      k8ify.securityContext.seccompProfile.localhostProfile: "profiles/my.json"
+      k8ify.securityContext.seLinuxOptions.type: "spc_t"

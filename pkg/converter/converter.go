@@ -176,7 +176,7 @@ func composeServiceToPullSecret(authConf string, name string, labels map[string]
 	return &secret
 }
 
-func composeServiceToDeployment(workload *ir.ParentService, refSlug string, projectVolumes map[string]*ir.Volume, labels map[string]string) (apps.Deployment, []core.Secret) {
+func composeServiceToDeployment(workload *ir.ParentService, refSlug string, projectVolumes map[string]*ir.Volume, labels map[string]string, targetCfg ir.TargetCfg) (apps.Deployment, []core.Secret) {
 
 	deployment := apps.Deployment{}
 	deployment.APIVersion = "apps/v1"
@@ -191,6 +191,7 @@ func composeServiceToDeployment(workload *ir.ParentService, refSlug string, proj
 		projectVolumes,
 		labels,
 		util.ServiceAccountName(workload.AsCompose().Labels),
+		targetCfg,
 	)
 
 	deployment.Spec = apps.DeploymentSpec{
@@ -228,7 +229,7 @@ func getUpdateOrder(composeService composeTypes.ServiceConfig) string {
 	return composeService.Deploy.UpdateConfig.Order
 }
 
-func composeServiceToStatefulSet(workload *ir.ParentService, refSlug string, projectVolumes map[string]*ir.Volume, volumeClaims []core.PersistentVolumeClaim, labels map[string]string) (apps.StatefulSet, []core.Secret) {
+func composeServiceToStatefulSet(workload *ir.ParentService, refSlug string, projectVolumes map[string]*ir.Volume, volumeClaims []core.PersistentVolumeClaim, labels map[string]string, targetCfg ir.TargetCfg) (apps.StatefulSet, []core.Secret) {
 	statefulset := apps.StatefulSet{}
 	statefulset.APIVersion = "apps/v1"
 	statefulset.Kind = "StatefulSet"
@@ -242,6 +243,7 @@ func composeServiceToStatefulSet(workload *ir.ParentService, refSlug string, pro
 		projectVolumes,
 		labels,
 		util.ServiceAccountName(workload.AsCompose().Labels),
+		targetCfg,
 	)
 
 	statefulset.Spec = apps.StatefulSetSpec{
@@ -273,6 +275,7 @@ func composeServiceToPodTemplate(
 	projectVolumes map[string]*ir.Volume,
 	labels map[string]string,
 	serviceAccountName string,
+	targetCfg ir.TargetCfg,
 ) (core.PodTemplateSpec, []core.Secret) {
 	container, secret, volumes := composeServiceToContainer(workload, refSlug, projectVolumes, labels)
 	containers := []core.Container{container}
@@ -329,6 +332,7 @@ func composeServiceToPodTemplate(
 		Volumes:            volumesArray,
 		ServiceAccountName: serviceAccountName,
 		Affinity:           composeServiceToAffinity(&workload.Service),
+		SecurityContext:    buildPodSecurityContext(workload, targetCfg),
 	}
 
 	return core.PodTemplateSpec{
@@ -384,6 +388,7 @@ func composeServiceToContainer(
 	lifecycle := composeServiceToLifecycle(&workload.Service)
 	containerPorts := composeServicePortsToK8sContainerPorts(&workload.Service)
 	resources := composeServiceToResourceRequirements(composeService)
+	secCtx := buildContainerSecurityContextFromLabels(composeService.Labels)
 	secret := composeServiceToSecret(&workload.Service, refSlug, labels)
 	envFrom := []core.EnvFromSource{}
 	if secret != nil {
@@ -441,6 +446,7 @@ func composeServiceToContainer(
 		Command:         composeService.Entrypoint, // ENTRYPOINT in Docker == 'entrypoint' in Compose == 'command' in K8s
 		Args:            composeService.Command,    // CMD in Docker == 'command' in Compose == 'args' in K8s
 		ImagePullPolicy: core.PullAlways,
+		SecurityContext: secCtx,
 	}, secret, volumes
 }
 
@@ -1024,6 +1030,7 @@ func ComposeServiceToK8s(ref string, workload *ir.ParentService, projectVolumes 
 			projectVolumes,
 			pvcs,
 			labels,
+			targetCfg,
 		)
 		objects.StatefulSets = []apps.StatefulSet{statefulset}
 		objects.Secrets = append(objects.Secrets, secrets...)
@@ -1033,6 +1040,7 @@ func ComposeServiceToK8s(ref string, workload *ir.ParentService, projectVolumes 
 			refSlug,
 			projectVolumes,
 			labels,
+			targetCfg,
 		)
 		objects.Deployments = []apps.Deployment{deployment}
 		objects.Secrets = append(objects.Secrets, secrets...)

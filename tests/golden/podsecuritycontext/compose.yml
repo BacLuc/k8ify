@@ -1,0 +1,16 @@
+services:
+  pinger:
+    image: nginx
+    volumes:
+      - data:/data
+    labels:
+      k8ify.podSecurityContext.fsGroup: "1000"
+      k8ify.podSecurityContext.fsGroupChangePolicy: OnRootMismatch
+      k8ify.podSecurityContext.seLinuxOptions.level: "s0:c100,c200"
+      k8ify.podSecurityContext.supplementalGroups: "500,500,200"
+      k8ify.podSecurityContext.seccompProfile.type: RuntimeDefault
+      k8ify.podSecurityContext.runAsUser: "1000"
+      k8ify.podSecurityContext.runAsGroup: "2000"
+      k8ify.podSecurityContext.runAsNonRoot: "true"
+volumes:
+  data: {}

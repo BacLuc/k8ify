@@ -119,6 +119,52 @@ Service Labels
 | `k8ify.exposePlain.$port.externalTrafficPolicy: Cluster\|Local`  | Set the k8s Service traffic policy (default `Local`). `Local` makes the client IP visible to the application but may provide worse load balancing than `Cluster`. |
 | `k8ify.exposePlain.$port.healthCheckNodePort: $port`  | Set the k8s Service health check port number. |
 | `k8ify.enableServiceLinks: $value` | Inject ENV variables for each K8s service in the namespace. |
+| `k8ify.podSecurityContext.*`  | Configure the pod-level `spec.template.spec.securityContext` (parent services only; rejected on `k8ify.partOf` parts), see [table below](#pod-level-security-context).  |
+| `k8ify.securityContext.*`  | Configure the container-level `spec.template.spec.containers[].securityContext` (allowed on parents and parts), see [table below](#container-level-security-context).  |
+
+##### Pod-level Security Context
+
+`k8ify.podSecurityContext.*` labels configure `spec.template.spec.securityContext` and are **parent-only**: putting them on a `k8ify.partOf` part is a hard validation error, because the pod security context applies to the whole pod, not a single container. Fields are only emitted when set; k8ify ships no built-in defaults that change existing output.
+
+| Label  | Maps to  | Type / values  |
+| ------ | -------- | -------------- |
+| `k8ify.podSecurityContext.fsGroup` | `securityContext.fsGroup` | int64 |
+| `k8ify.podSecurityContext.fsGroupChangePolicy` | `securityContext.fsGroupChangePolicy` | enum `Always` \| `OnRootMismatch` |
+| `k8ify.podSecurityContext.seLinuxOptions.user` | `securityContext.seLinuxOptions.user` | string |
+| `k8ify.podSecurityContext.seLinuxOptions.role` | `securityContext.seLinuxOptions.role` | string |
+| `k8ify.podSecurityContext.seLinuxOptions.type` | `securityContext.seLinuxOptions.type` | string |
+| `k8ify.podSecurityContext.seLinuxOptions.level` | `securityContext.seLinuxOptions.level` | string (verbatim, may contain `:`/`,`) |
+| `k8ify.podSecurityContext.supplementalGroups` | `securityContext.supplementalGroups` | comma-separated int64 list, sorted & deduped |
+| `k8ify.podSecurityContext.seccompProfile.type` | `securityContext.seccompProfile.type` | enum `RuntimeDefault` \| `Localhost` |
+| `k8ify.podSecurityContext.seccompProfile.localhostProfile` | `securityContext.seccompProfile.localhostProfile` | string (only with `type=Localhost`) |
+| `k8ify.podSecurityContext.runAsUser` | `securityContext.runAsUser` | int64 |
+| `k8ify.podSecurityContext.runAsGroup` | `securityContext.runAsGroup` | int64 |
+| `k8ify.podSecurityContext.runAsNonRoot` | `securityContext.runAsNonRoot` | truthy |
+
+##### Container-level Security Context
+
+`k8ify.securityContext.*` labels configure `spec.template.spec.containers[].securityContext` and may be set on both parent services and `k8ify.partOf` parts (each container gets its own context).
+
+| Label  | Maps to  | Type / values  |
+| ------ | -------- | -------------- |
+| `k8ify.securityContext.runAsUser` | `securityContext.runAsUser` | int64 |
+| `k8ify.securityContext.runAsGroup` | `securityContext.runAsGroup` | int64 |
+| `k8ify.securityContext.runAsNonRoot` | `securityContext.runAsNonRoot` | truthy |
+| `k8ify.securityContext.readOnlyRootFilesystem` | `securityContext.readOnlyRootFilesystem` | truthy |
+| `k8ify.securityContext.allowPrivilegeEscalation` | `securityContext.allowPrivilegeEscalation` | truthy |
+| `k8ify.securityContext.privileged` | `securityContext.privileged` | truthy |
+| `k8ify.securityContext.capabilities.add` | `securityContext.capabilities.add` | comma-separated, uppercased, sorted, deduped |
+| `k8ify.securityContext.capabilities.drop` | `securityContext.capabilities.drop` | same |
+| `k8ify.securityContext.seccompProfile.type` | `securityContext.seccompProfile.type` | enum `RuntimeDefault` \| `Localhost` |
+| `k8ify.securityContext.seccompProfile.localhostProfile` | `securityContext.seccompProfile.localhostProfile` | string (only with `type=Localhost`) |
+| `k8ify.securityContext.seLinuxOptions.user` | `securityContext.seLinuxOptions.user` | string |
+| `k8ify.securityContext.seLinuxOptions.role` | `securityContext.seLinuxOptions.role` | string |
+| `k8ify.securityContext.seLinuxOptions.type` | `securityContext.seLinuxOptions.type` | string |
+| `k8ify.securityContext.seLinuxOptions.level` | `securityContext.seLinuxOptions.level` | string (verbatim, may contain `:`/`,`) |
+
+##### Precedence
+
+When security context fields are configured both per-service and cluster-wide, k8ify applies them per field (not as a whole-object replace): explicit service label > `x-targetCfg.securityContext` default > nothing. k8ify does **not** ship built-in hard-coded defaults that change existing output — omitting all keys produces byte-identical manifests. `seccompProfile.type=Localhost` requires `seccompProfile.localhostProfile` (validation error otherwise). Services using `k8ify.converter` short-circuit before pod construction, so security-context labels are ignored for those (they delegate fully to the external converter).
 
 Volume Labels
 

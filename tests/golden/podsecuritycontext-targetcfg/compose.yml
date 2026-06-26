@@ -1,0 +1,12 @@
+services:
+  app:
+    image: nginx
+    volumes:
+      - data:/data
+    labels:
+      k8ify.podSecurityContext.fsGroup: "1000"
+volumes:
+  data: {}
+x-targetCfg:
+  securityContext:
+    fsGroupChangePolicy: OnRootMismatch

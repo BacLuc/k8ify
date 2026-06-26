@@ -106,6 +106,7 @@ func Main(args []string) int {
 	internal.ComposeServicePrecheck(inputs)
 	internal.VolumesPrecheck(inputs)
 	internal.DomainLengthPrecheck(inputs)
+	internal.SecurityContextPrecheck(inputs)
 
 	objects := converter.Objects{}
 

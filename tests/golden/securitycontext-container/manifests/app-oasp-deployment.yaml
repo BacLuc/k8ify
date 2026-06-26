@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    k8ify.ref-slug: oasp
+    k8ify.service: app
+  name: app-oasp
+spec:
+  selector:
+    matchLabels:
+      k8ify.ref-slug: oasp
+      k8ify.service: app
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        k8ify.ref-slug: oasp
+        k8ify.service: app
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: k8ify.service
+                operator: In
+                values:
+                - app
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - image: nginx
+        imagePullPolicy: Always
+        name: app-oasp
+        resources: {}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            add:
+            - NET_BIND_SERVICE
+            - SYS_PTRACE
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 2000
+          runAsNonRoot: true
+          runAsUser: 1000
+          seLinuxOptions:
+            type: spc_t
+          seccompProfile:
+            localhostProfile: profiles/my.json
+            type: Localhost
+      enableServiceLinks: false
+      restartPolicy: Always
+status: {}
